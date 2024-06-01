@@ -1012,7 +1012,7 @@ class Update(_ProjectCommand):
         # in a project, allowing us to control the recursion so it
         # always uses the latest manifest data.
         self.updated = set()
-
+        print("Updateall")
         self.manifest = Manifest.from_file(
             importer=self.update_importer,
             import_flags=ImportFlag.FORCE_PROJECTS)
@@ -1021,6 +1021,15 @@ class Update(_ProjectCommand):
         for project in self.manifest.projects:
             if (isinstance(project, ManifestProject) or
                     project.name in self.updated):
+                continue
+            if project.get_with_git == False:
+                print('\x1b[1;32;42m' + 'Downloading ' + project.name + ' using curl' + '\x1b[0m')
+                #project.any_cmd(['ls', '-a'])
+                #project.any_cmd(['mkir', '.temp'])
+                repository_path = project.url + "/archive/refs/heads/" + project.revision + ".tar.gz" 
+                file_path = project.name + '.tar.gz'
+                print(repository_path + "  " +file_path)
+                project.any_cmd(['curl', repository_path, '--output', file_path])
                 continue
             try:
                 if not self.project_is_active(project):

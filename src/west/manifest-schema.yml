@@ -82,6 +82,9 @@ mapping:
           name:
             required: true
             type: str
+          get-with-git:
+            required: false
+            type: bool
           # Project description. Has no effect.
           description:
             required: false

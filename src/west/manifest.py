@@ -794,7 +794,8 @@ class Project:
                  topdir: Optional[PathType] = None,
                  remote_name: Optional[str] = None,
                  groups: Optional[GroupsType] = None,
-                 userdata: Optional[Any] = None):
+                 userdata: Optional[Any] = None,
+                 get_with_git: Optional[bool] = False):
         '''Project constructor.
 
         If *topdir* is ``None``, then absolute path attributes
@@ -829,6 +830,7 @@ class Project:
         self.remote_name = remote_name or 'origin'
         self.groups: GroupsType = groups or []
         self.userdata: Any = userdata
+        self.get_with_git = get_with_git
 
     @property
     def path(self) -> str:
@@ -870,6 +872,7 @@ class Project:
             ret['description'] = _MLS(self.description)
         ret['url'] = self.url
         ret['revision'] = self.revision
+        ret['get-with-git'] = self.get_with_git
         if self.path != self.name:
             ret['path'] = self.path
         if self.clone_depth:
@@ -883,6 +886,58 @@ class Project:
             ret['userdata'] = self.userdata
 
         return ret
+
+    def any_cmd(self, cmd: Union[str, List[str]],
+            extra_args: Iterable[str] = (),
+            capture_stdout: bool = False,
+            capture_stderr: bool = False,
+            check: bool = True,
+            cwd: Optional[PathType] = None) -> subprocess.CompletedProcess:
+
+        if isinstance(cmd, str):
+            cmd_list = shlex.split(cmd)
+        else:
+            cmd_list = list(cmd)
+
+        extra_args = list(extra_args)
+
+        if cwd is None:
+            if self.abspath is not None:
+                cwd = self.abspath
+            else:
+                raise ValueError('no abspath; cwd must be given')
+        elif sys.version_info < (3, 6, 1) and not isinstance(cwd, str):
+            # Popen didn't accept a PathLike cwd on Windows until
+            # python v3.7; this was backported onto cpython v3.6.1,
+            # though. West currently supports "python 3.6", though, so
+            # in the unlikely event someone is running 3.6.0 on
+            # Windows, do the right thing.
+            cwd = os.fspath(cwd)
+
+        args = cmd_list + extra_args
+        cmd_str = util.quote_sh_list(args)
+
+        _logger.debug(f"running '{cmd_str}' in {cwd}")
+        popen = subprocess.Popen(
+            args, cwd=cwd,
+            stdout=subprocess.PIPE if capture_stdout else None,
+            stderr=subprocess.PIPE if capture_stderr else None)
+
+        stdout, stderr = popen.communicate()
+
+        # We use logger style % formatting here to avoid the
+        # potentially expensive overhead of formatting long
+        # stdout/stderr strings if the current log level isn't DEBUG,
+        # which is the usual case.
+        _logger.debug('"%s" exit code: %d stdout: %r stderr: %r',
+                      cmd_str, popen.returncode, stdout, stderr)
+
+        if check and popen.returncode:
+            raise subprocess.CalledProcessError(popen.returncode, cmd_list,
+                                                output=stdout, stderr=stderr)
+        else:
+            return subprocess.CompletedProcess(popen.args, popen.returncode,
+                                               stdout, stderr)
 
     #
     # Git helpers
@@ -2381,7 +2436,11 @@ class Manifest:
                 f'project {name}: "groups" cannot be combined with "import"')
 
         userdata = pd.get('userdata')
-
+        get_with_git = pd.get('get-with-git')
+        if get_with_git is not None:
+            print("Will " + str(get_with_git) + "curl project " + name + " at : " + path + " from: " + url + "/" + pd.get('revision', defaults.revision))
+        else:
+            get_with_git = False
         ret = Project(name, url, description=pd.get('description'),
                       revision=pd.get('revision', defaults.revision),
                       path=path,
@@ -2391,7 +2450,8 @@ class Manifest:
                       west_commands=pd.get('west-commands'),
                       topdir=self.topdir, remote_name=remote,
                       groups=groups,
-                      userdata=userdata)
+                      userdata=userdata,
+                      get_with_git=get_with_git)
 
         # Make sure the return Project's path does not escape the
         # workspace. We can't use escapes_directory() as that
